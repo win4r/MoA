@@ -7,6 +7,7 @@ from utils import (
     DEBUG,
 )
 import typer
+import os
 from rich import print
 from rich.console import Console
 from rich.markdown import Markdown
@@ -14,35 +15,65 @@ from rich.prompt import Prompt
 from datasets.utils.logging import disable_progress_bar
 from time import sleep
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")
+API_BASE = os.getenv("API_BASE")
+
+API_KEY_2 = os.getenv("API_KEY_2")
+API_BASE_2 = os.getenv("API_BASE_2")
+
+MAX_TOKENS = os.getenv("MAX_TOKENS")
+TEMPERATURE = os.getenv("TEMPERATURE")
+ROUNDS = os.getenv("ROUNDS")
+MULTITURN = os.getenv("MULTITURN") == "True"
+
+MODEL_AGGREGATE = os.getenv("MODEL_AGGREGATE")
+MODEL_REFERENCE_1 = os.getenv("MODEL_REFERENCE_1")
+MODEL_REFERENCE_2 = os.getenv("MODEL_REFERENCE_2")
+MODEL_REFERENCE_3 = os.getenv("MODEL_REFERENCE_3")
+
 disable_progress_bar()
 
 console = Console()
 
-welcome_message = """
-# Welcome to the Together AI MoA (Mixture-of-Agents) interactive demo!
+welcome_message = (
+    """
+# MoA (Mixture-of-Agents)
 
-Mixture of Agents (MoA) is a novel approach that leverages the collective strengths of multiple LLMs to enhance performance, achieving state-of-the-art results. By employing a layered architecture where each layer comprises several LLM agents, MoA significantly outperforms GPT-4 Omni’s 57.5% on AlpacaEval 2.0 with a score of 65.1%, using only open-source models!
+Mixture of Agents (MoA) is a novel approach that leverages the collective strengths of multiple LLMs to enhance performance, achieving state-of-the-art results. By employing a layered architecture where each layer comprises several LLM agents, MoA can significantly outperform GPT-4 Omni's 57.5% on AlpacaEval 2.0 with a score of 65.1%, using open-source models!
 
-This demo uses the following LLMs as reference models, then passes the results to the aggregate model for the final response:
-- Qwen/Qwen2-72B-Instruct
-- Qwen/Qwen1.5-72B-Chat
-- mistralai/Mixtral-8x22B-Instruct-v0.1
-- databricks/dbrx-instruct
+The following LLMs as reference models, then passes the results to the aggregate model for the final response:
+- """
+    + MODEL_AGGREGATE
+    + """   <--- Aggregate model
+- """
+    + MODEL_REFERENCE_1
+    + """   <--- Reference model 1
+- """
+    + MODEL_REFERENCE_2
+    + """   <--- Reference model 2
+- """
+    + MODEL_REFERENCE_3
+    + """   <--- Reference model 3
 
 """
+)
 
 default_reference_models = [
-    "Qwen/Qwen2-72B-Instruct",
-    "Qwen/Qwen1.5-72B-Chat",
-    "mistralai/Mixtral-8x22B-Instruct-v0.1",
-    "databricks/dbrx-instruct",
+    # MODEL_AGGREGATE,
+    MODEL_REFERENCE_1,
+    MODEL_REFERENCE_2,
+    MODEL_REFERENCE_3,
 ]
 
 
 def process_fn(
     item,
-    temperature=0.7,
-    max_tokens=2048,
+    temperature=TEMPERATURE,
+    max_tokens=MAX_TOKENS,
 ):
     """
     Processes a single item (e.g., a conversational turn) using specified model parameters to generate a response.
@@ -83,12 +114,12 @@ def process_fn(
 
 
 def main(
-    model: str = "Qwen/Qwen2-72B-Instruct",
+    model: str = MODEL_AGGREGATE,
     reference_models: list[str] = default_reference_models,
-    temperature: float = 0.7,
-    max_tokens: int = 512,
-    rounds: int = 1,
-    multi_turn=True,
+    temperature: float = TEMPERATURE,
+    max_tokens: int = MAX_TOKENS,
+    rounds: int = ROUNDS,
+    multi_turn=MULTITURN,
 ):
     """
     Runs a continuous conversation between user and MoA.
@@ -118,21 +149,21 @@ def main(
 
     model = Prompt.ask(
         "\n1. What main model do you want to use?",
-        default="Qwen/Qwen2-72B-Instruct",
+        default=MODEL_AGGREGATE,
     )
     console.print(f"Selected {model}.", style="yellow italic")
     temperature = float(
         Prompt.ask(
-            "2. What temperature do you want to use? [cyan bold](0.7) [/cyan bold]",
-            default=0.7,
+            "2. What temperature do you want to use?",
+            default=TEMPERATURE,
             show_default=True,
         )
     )
     console.print(f"Selected {temperature}.", style="yellow italic")
     max_tokens = int(
         Prompt.ask(
-            "3. What max tokens do you want to use? [cyan bold](512) [/cyan bold]",
-            default=512,
+            "3. What max tokens do you want to use?",
+            default=MAX_TOKENS,
             show_default=True,
         )
     )
@@ -144,7 +175,7 @@ def main(
             instruction = Prompt.ask(
                 "\n[cyan bold]Prompt >>[/cyan bold] ",
                 default="Top things to do in NYC",
-                show_default=True,
+                show_default=False,
             )
         except EOFError:
             break
@@ -158,7 +189,7 @@ def main(
                 data["references"] = [""] * len(reference_models)
         else:
             data = {
-                "instruction": [[{"role": "user", "content": instruction}]]
+                "instruction": [{"role": "user", "content": instruction}]
                 * len(reference_models),
                 "references": [""] * len(reference_models),
                 "model": [m for m in reference_models],
@@ -191,6 +222,8 @@ def main(
             messages=data["instruction"][0],
             references=references,
             generate_fn=generate_together_stream,
+            api_base=API_BASE_2,
+            api_key=API_KEY_2
         )
 
         all_output = ""
@@ -200,7 +233,9 @@ def main(
         for chunk in output:
             out = chunk.choices[0].delta.content
             console.print(out, end="")
-            all_output += out
+            all_output += str(out)
+        if all_output.endswith('None'):
+            all_output = all_output[:-4]
         print()
 
         if DEBUG:
